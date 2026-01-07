@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ガチャ</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 12px; }
+    textarea, input { width: 100%; box-sizing: border-box; }
+    textarea { height: 180px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    button { padding: 10px 14px; margin-right: 8px; }
+    pre { background: #f6f6f6; padding: 12px; overflow: auto; }
+    .warn { color: #b00020; }
+    .ok { color: #0a7a0a; }
+  </style>
+</head>
+<body>
+  <h1>ガチャ（簡易）</h1>
+
+  <h2>1) 景品と確率（重み）を設定</h2>
+  <p>1行に1景品： <code>景品名,重み</code>（重みは整数推奨。合計が100でなくてもOK）</p>
+  <textarea id="items">
+A賞（超レア演出）,1
+B賞（レア）,5
+C賞（ふつう）,20
+D賞（参加賞）,74
+  </textarea>
+
+  <div class="row">
+    <div>
+      <h2>2) 連続回数</h2>
+      <input id="count" type="number" min="1" value="10" />
+      <p id="status"></p>
+      <button id="draw1">1回引く</button>
+      <button id="drawN">N回引く</button>
+      <button id="clear">結果クリア</button>
+    </div>
+    <div>
+      <h2>3) 設定チェック</h2>
+      <button id="validate">確率チェック</button>
+      <pre id="check"></pre>
+    </div>
+  </div>
+
+  <h2>結果</h2>
+  <pre id="result"></pre>
+
+<script>
+  function parseItems(text) {
+    const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const items = [];
+    for (const line of lines) {
+      const parts = line.split(",").map(s => s.trim());
+      if (parts.length !== 2) throw new Error(`形式エラー: "${line}" は "景品名,重み" で入力してください`);
+      const name = parts[0];
+      const weight = Number(parts[1]);
+      if (!name) throw new Error(`景品名が空です: "${line}"`);
+      if (!Number.isFinite(weight) || weight <= 0) throw new Error(`重みが不正です: "${line}"（0より大きい数）`);
+      items.push({ name, weight });
+    }
+    if (items.length === 0) throw new Error("景品が0件です");
+    return items;
+  }
+
+  function buildPicker(items) {
+    const total = items.reduce((a, x) => a + x.weight, 0);
+    const cum = [];
+    let acc = 0;
+    for (const it of items) {
+      acc += it.weight;
+      cum.push({ upto: acc, name: it.name });
+    }
+    return () => {
+      const r = Math.random() * total;
+      // cum[0].upto > r ならそれ、という線形探索（景品数が少ない想定）
+      for (const c of cum) if (r < c.upto) return c.name;
+      return cum[cum.length - 1].name; // 念のため
+    };
+  }
+
+  const elItems = document.getElementById("items");
+  const elCount = document.getElementById("count");
+  const elResult = document.getElementById("result");
+  const elCheck = document.getElementById("check");
+  const elStatus = document.getElementById("status");
+
+  function validate(showOk=true) {
+    try {
+      const items = parseItems(elItems.value);
+      const total = items.reduce((a, x) => a + x.weight, 0);
+      const lines = items.map(x => {
+        const pct = (x.weight / total * 100);
+        return `${x.name} : 重み ${x.weight} （約 ${pct.toFixed(2)}%）`;
+      });
+      elCheck.textContent = `合計重み: ${total}\n` + lines.join("\n");
+      elStatus.textContent = "設定OK";
+      elStatus.className = "ok";
+      return { ok: true, items };
+    } catch (e) {
+      elCheck.textContent = String(e.message || e);
+      elStatus.textContent = "設定にエラーあり";
+      elStatus.className = "warn";
+      return { ok: false, error: e };
+    }
+  }
+
+  function draw(times) {
+    const v = validate(false);
+    if (!v.ok) return;
+
+    const items = v.items;
+    const pick = buildPicker(items);
+
+    const results = [];
+    const tally = new Map();
+
+    for (let i = 0; i < times; i++) {
+      const r = pick();
+      results.push(r);
+      tally.set(r, (tally.get(r) || 0) + 1);
+    }
+
+    // 表示
+    const tallyText = Array.from(tally.entries())
+      .sort((a,b) => b[1]-a[1])
+      .map(([k,v]) => `${k} : ${v}`)
+      .join("\n");
+
+    elResult.textContent =
+      `【${times}回】\n` +
+      results.map((x, i) => `${String(i+1).padStart(2,"0")} : ${x}`).join("\n") +
+      `\n\n--- 集計 ---\n${tallyText}\n\n` +
+      elResult.textContent;
+  }
+
+  document.getElementById("validate").onclick = () => validate(true);
+  document.getElementById("draw1").onclick = () => draw(1);
+  document.getElementById("drawN").onclick = () => draw(Math.max(1, Number(elCount.value) || 1));
+  document.getElementById("clear").onclick = () => { elResult.textContent = ""; };
+
+  validate(true);
+</script>
+</body>
+</html>
